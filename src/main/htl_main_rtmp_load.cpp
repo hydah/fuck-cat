@@ -38,19 +38,20 @@ using namespace std;
 #include <htl_main_utility.hpp>
 
 #define DefaultDelaySeconds 1.0
-#define DefaultRtmpUrl "rtmp://127.0.0.1:1935/live/livestream"
+#define DefaultRtmpUrlSingle "rtmp://127.0.0.1:1935/live/livestream"
+#define DefaultRtmpUrl "rtmp://127.0.0.1:1935/live/livestream_{i}"
 
-int discovery_options(int argc, char** argv, 
-    bool& show_help, bool& show_version, string& url, int& threads, 
+int discovery_options(int argc, char** argv,
+    bool& show_help, bool& show_version, string& url, int& threads,
     double& startup, double& delay, double& error, double& report, int& count
 ){
     int ret = ERROR_SUCCESS;
-    
+
     static option long_options[] = {
         SharedOptions()
         {0, 0, 0, 0}
     };
-    
+
     int opt = 0;
     int option_index = 0;
     while((opt = getopt_long(argc, argv, "hvc:r:t:s:d:e:m:", long_options, &option_index)) != -1){
@@ -61,7 +62,7 @@ int discovery_options(int argc, char** argv,
                 break;
         }
     }
-    
+
     // check values
     if(url == ""){
         show_help = true;
@@ -73,9 +74,9 @@ int discovery_options(int argc, char** argv,
 
 void help(char** argv){
     printf("%s, Copyright (c) 2013-2015 winlin\n", ProductRtmpName);
-    printf("srs.librtmp %d.%d.%d (https://github.com/winlinvip/srs.librtmp)\n\n", 
+    printf("srs.librtmp %d.%d.%d (https://github.com/winlinvip/srs.librtmp)\n\n",
         srs_version_major(), srs_version_minor(), srs_version_revision());
-    
+
     printf(""
         "Usage: %s <Options> <-u URL>\n"
         "%s base on st(state-threads), support huge concurrency.\n"
@@ -95,40 +96,40 @@ void help(char** argv){
         "\n"
         "This program built for %s.\n"
         "Report bugs to <%s>\n",
-        argv[0], argv[0], 
+        argv[0], argv[0],
         DefaultThread, DefaultRtmpUrl, DefaultCount, // part1
         (double)DefaultStartupSeconds, DefaultDelaySeconds, // part2
         DefaultErrorSeconds, DefaultReportSeconds, // part2
-        argv[0], DefaultRtmpUrl, argv[0], DefaultRtmpUrl, argv[0], DefaultRtmpUrl, argv[0], DefaultRtmpUrl,
+        argv[0], DefaultRtmpUrlSingle, argv[0], DefaultRtmpUrl, argv[0], DefaultRtmpUrl, argv[0], DefaultRtmpUrl,
         BuildPlatform, BugReportEmail);
-        
+
     exit(0);
 }
 
 int main(int argc, char** argv){
     int ret = ERROR_SUCCESS;
-    
-    bool show_help = false, show_version = false; 
-    string url; int threads = DefaultThread; 
+
+    bool show_help = false, show_version = false;
+    string url; int threads = DefaultThread;
     double start = DefaultStartupSeconds, delay = DefaultDelaySeconds, error = DefaultErrorSeconds;
     double report = DefaultReportSeconds; int count = DefaultCount;
-    
+
     if((ret = discovery_options(argc, argv, show_help, show_version, url, threads, start, delay, error, report, count)) != ERROR_SUCCESS){
         Error("discovery options failed. ret=%d", ret);
         return ret;
     }
-    Trace("params url=%s, threads=%d, start=%.2f, delay=%.2f, error=%.2f, report=%.2f, count=%d", 
+    Trace("params url=%s, threads=%d, start=%.2f, delay=%.2f, error=%.2f, report=%.2f, count=%d",
         url.c_str(), threads, start, delay, error, report, count);
-    
+
     if(show_help){
         help(argv);
     }
     if(show_version){
         version();
     }
-    
+
     StFarm farm;
-    
+
     if((ret = farm.Initialize(report)) != ERROR_SUCCESS){
         Error("initialize the farm failed. ret=%d", ret);
         return ret;
@@ -137,19 +138,29 @@ int main(int argc, char** argv){
     for(int i = 0; i < threads; i++){
         StRtmpTask* task = new StRtmpTask();
 
-        if((ret = task->Initialize(url, start, delay, error, count)) != ERROR_SUCCESS){
+        char index[16];
+        snprintf(index, sizeof(index), "%d", i);
+
+        std::string _index = index;
+        std::string rtmp_url = url;
+        size_t pos = std::string::npos;
+        if ((pos = rtmp_url.find("{i}")) != std::string::npos) {
+            rtmp_url = rtmp_url.replace(pos, 3, _index);
+        }
+
+        if((ret = task->Initialize(rtmp_url, start, delay, error, count)) != ERROR_SUCCESS){
             Error("initialize task failed, url=%s, ret=%d", url.c_str(), ret);
             return ret;
         }
-        
+
         if((ret = farm.Spawn(task)) != ERROR_SUCCESS){
             Error("st farm spwan task failed, ret=%d", ret);
             return ret;
         }
     }
-    
+
     farm.WaitAll();
-    
+
     return 0;
 }
 
